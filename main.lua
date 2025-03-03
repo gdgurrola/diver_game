@@ -2,6 +2,9 @@ pico-8 cartridge // http://www.pico-8.com
 version 38
 __lua__
 
+-- Global oxygen variable (full oxygen = 100)
+oxygen = 100
+
 -- Player setup
 player = {
     x = 64,  -- Starting position in the world
@@ -13,15 +16,15 @@ player = {
 }
 
 -- Animation sequences
-swim_up_frames = {0, 2, 4, 6, 8, 10}    -- Upward swimming
-swim_right_frames = {12, 14}             -- Rightward swimming
-swim_left_frames = {32, 34}              -- Leftward swimming
-swim_down_frames = {36, 38, 40, 42}       -- Downward swimming
+swim_up_frames   = {0, 2, 4, 6, 8, 10}   -- Upward swimming
+swim_right_frames= {12, 14}             -- Rightward swimming
+swim_left_frames = {32, 34}             -- Leftward swimming
+swim_down_frames = {36, 38, 40, 42}      -- Downward swimming
 
 map_width = 1024 -- 128 tiles * 8 pixels
 map_height = 512 -- 64 tiles * 8 pixels (extended map size)
 
--- Sand block occupies 8 pixels at the bottom
+-- Sand block occupies 1 tile (8 pixels) at the bottom
 sand_top = map_height - 8
 
 -- Camera position
@@ -44,11 +47,10 @@ function _update()
     end
 
     -- Handle up/down movement with boundaries:
-    -- Upper boundary is at y = 56; lower boundary stops before entering sand.
-    if btn(2) and player.y > 56 then -- Up
+    if btn(2) and player.y > 56 then -- Up (upper boundary at y = 56)
         player.y -= player.speed
         moving_vertically = true
-    elseif btn(3) and player.y < (sand_top - 16) then -- Down; sand_top - 16 = map_height - 24
+    elseif btn(3) and player.y < (sand_top - 16) then -- Down (prevent entering sand)
         player.y += player.speed
         moving_vertically = true
     end
@@ -81,13 +83,23 @@ function _update()
         player.frame = 1
     end
 
-    -- Camera follows the player, stays within map boundaries
+    -- Oxygen system:
+    -- When underwater (player.y > 56), oxygen decreases slowly.
+    -- When at or above the surface (y <= 56), oxygen resets.
+    if player.y > 56 then
+        oxygen -= 0.05  -- Decrease oxygen more slowly
+        if oxygen < 0 then oxygen = 0 end
+    else
+        oxygen = 100
+    end
+
+    -- Update camera to follow the player while staying inside map boundaries
     cam_x = mid(0, player.x - 64, map_width - 128)
     cam_y = mid(0, player.y - 64, map_height - 128)
 end
 
 function _draw()
-    cls() 
+    cls()
     camera(cam_x, cam_y)
     map(0, 0, 0, 0, 128, 128)
 
@@ -101,4 +113,11 @@ function _draw()
     elseif player.direction == "down" then
         spr(swim_down_frames[player.frame], player.x, player.y, 2, 2)
     end
+
+    -- Draw oxygen bar as a UI element (fixed on screen)
+    camera(0,0)  -- Reset camera to draw UI elements
+    -- The oxygen bar will be drawn in red (color 8) and have a max width of 40 pixels.
+    local bar_width = (oxygen / 100) * 40
+    rectfill(5, 5, 5 + bar_width, 10, 8) 
+    print("oxygen", 5, 12, 7)
 end
