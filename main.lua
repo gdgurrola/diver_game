@@ -111,8 +111,8 @@ function _update()
     if game_state == "start" then
         if btnp(4) then  -- Z button
             game_state = "pregame"
-            player.x = boat.x + boat.width/2 - 8
-            player.y = boat.y - 8
+            player.x = boat.x + boat.width/2 - 10
+            player.y = boat.y - 3
         end
 
     elseif game_state == "pregame" then
@@ -215,6 +215,11 @@ function _update()
 
 local boat_colliding = collides(player, boat, 16, 16, boat.width, boat.height)
 
+
+-- In the "game" branch of _update(), after handling movement and animation:
+
+local boat_colliding = collides(player, boat, 16, 16, boat.width, boat.height)
+
 -- Deposit fish: when colliding with boat and Z (btnp(4)) is pressed
 if btnp(4) and boat_colliding then
     if #player.inventory > 0 then
@@ -269,8 +274,8 @@ end
             refills = 3
             score = 0
             player.inventory = {}
-            player.x = boat.x + boat.width/2 - 8
-            player.y = boat.y - 8
+            player.x = boat.x + boat.width/2 - 10
+            player.y = boat.y - 3
         end
     end
 end
