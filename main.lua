@@ -2,67 +2,136 @@ pico-8 cartridge // http://www.pico-8.com
 version 38
 __lua__
 
--- Global oxygen variable (full oxygen = 100)
+-- Global variables
 oxygen = 100
+refills = 3  -- 3 breaths per round
+score = 0
+high_score = 0
+pickup_effects = {}  -- For showing pickup/deposit effects
 
--- Player setup
+-- Player setup (drawn 2x; native 8x8 becomes 16x16)
 player = {
-    x = 64,  -- Starting position in the world
+    x = 64,
     y = 64,
     speed = 1.5,
     frame = 1,
     anim_timer = 0,
-    direction = "up"
+    direction = "up",
+    inventory = {}  -- Holds picked-up fish (max 10)
 }
 
--- Animation sequences
-swim_up_frames   = {0, 2, 4, 6, 8, 10}   -- Upward swimming
-swim_right_frames= {12, 14}             -- Rightward swimming
-swim_left_frames = {32, 34}             -- Leftward swimming
-swim_down_frames = {36, 38, 40, 42}      -- Downward swimming
+-- Animation sequences for the player
+swim_up_frames    = {0, 2, 4, 6, 8, 10}
+swim_right_frames = {12, 14}
+swim_left_frames  = {32, 34}
+swim_down_frames  = {36, 38, 40, 42}
 
-map_width = 1024 -- 128 tiles * 8 pixels
-map_height = 512 -- 64 tiles * 8 pixels (extended map size)
-
--- Sand block occupies 1 tile (8 pixels) at the bottom
+map_width = 1024  -- 128 tiles * 8 pixels
+map_height = 512  -- 64 tiles * 8 pixels (extended map)
 sand_top = map_height - 8
 
--- Camera position
+-- Boat object (already drawn on the map as sprite 75 at tile (2,10))
+-- Tile (2,10) → (16,80) in pixels; boat is 32x32 pixels.
+boat = { x = 16, y = 45, width = 32, height = 20 }
+
+-- Camera position variables
 cam_x = 0
 cam_y = 0
 
+-- ==================================================
+-- FISH SPAWNING SETUP
+-- ==================================================
+fish_list = {}
+
+fish_types = {
+    {sprite = 67,  value = 30,  min_spawn_y = 100},
+    {sprite = 82,  value = 150, min_spawn_y = 180},
+    {sprite = 68,  value = 50,  min_spawn_y = 260},
+    {sprite = 69,  value = 30,  min_spawn_y = 340},
+    {sprite = 84,  value = 30,  min_spawn_y = 420},
+    {sprite = 85,  value = 50,  min_spawn_y = 100},
+    {sprite = 99,  value = 120, min_spawn_y = 180},
+    {sprite = 98,  value = 100, min_spawn_y = 260},
+    {sprite = 84,  value = 120, min_spawn_y = 340},
+    {sprite = 83,  value = 300, min_spawn_y = 340},
+    {sprite = 100, value = 80,  min_spawn_y = 420},
+    {sprite = 101, value = 130, min_spawn_y = 100},
+    {sprite = 112, value = 200, min_spawn_y = 420}
+}
+
+-- Weighted random selection: weight = (300 / fish.value)
+function pick_fish_type()
+    local total = 0
+    for i=1, #fish_types do
+        total += 300 / fish_types[i].value
+    end
+    local r = rnd(total)
+    local sum = 0
+    for i=1, #fish_types do
+        sum += 300 / fish_types[i].value
+        if r < sum then
+            return fish_types[i]
+        end
+    end
+    return fish_types[#fish_types]
+end
+
+function spawn_fish()
+    local ftype = pick_fish_type()
+    local x = rnd(map_width - 16)
+    local y = ftype.min_spawn_y + rnd((map_height - 8) - ftype.min_spawn_y)
+    -- Ensure the fish spawns offscreen relative to the current camera view:
+    while (x >= cam_x and x <= cam_x + 128 and y >= cam_y and y <= cam_y + 128) do
+        x = rnd(map_width - 16)
+        y = ftype.min_spawn_y + rnd((map_height - 8) - ftype.min_spawn_y)
+    end
+    local dir = (flr(rnd(2)) == 0) and "right" or "left"
+    local vx = (dir == "right") and 0.5 or -0.5
+    local flip = (dir == "left")
+    local fish = { x = x, y = y, vx = vx, type = ftype, flip = flip }
+    add(fish_list, fish)
+end
+
+-- Collision detection: defaults are player size 16x16, fish size 8x8
+function collides(a, b, aw, ah, bw, bh)
+    aw = aw or 16
+    ah = ah or 16
+    bw = bw or 8
+    bh = bh or 8
+    return a.x < b.x + bw and a.x + aw > b.x and a.y < b.y + bh and a.y + ah > b.y
+end
+
+-- ==================================================
+-- _update() function
+-- ==================================================
 function _update()
     local moving_horizontally = false
     local moving_vertically = false
 
-    -- Handle left/right movement with boundaries
-    if btn(0) and player.x > 0 then -- Left
+    if btn(0) and player.x > 0 then
         player.x -= player.speed
         player.direction = "left"
         moving_horizontally = true
-    elseif btn(1) and player.x < map_width - 16 then -- Right
+    elseif btn(1) and player.x < map_width - 16 then
         player.x += player.speed
         player.direction = "right"
         moving_horizontally = true
     end
 
-    -- Handle up/down movement with boundaries:
-    if btn(2) and player.y > 56 then -- Up (upper boundary at y = 56)
+    if btn(2) and player.y > 56 then
         player.y -= player.speed
         moving_vertically = true
-    elseif btn(3) and player.y < (sand_top - 16) then -- Down (prevent entering sand)
+    elseif btn(3) and player.y < (sand_top - 16) then
         player.y += player.speed
         moving_vertically = true
     end
 
-    -- Prioritize left/right animation for diagonal movement
     if moving_horizontally and moving_vertically then
-        -- Keep left/right animation
+        -- keep left/right animation for diagonal movement
     elseif moving_vertically then
         player.direction = btn(2) and "up" or "down"
     end
 
-    -- Animation logic
     player.anim_timer += 1
     if player.anim_timer > 4 then
         player.frame += 1
@@ -78,32 +147,82 @@ function _update()
         player.anim_timer = 0
     end
 
-    -- Reset animation when not moving
     if not (btn(0) or btn(1) or btn(2) or btn(3)) then
         player.frame = 1
     end
 
-    -- Oxygen system:
-    -- When underwater (player.y > 56), oxygen decreases slowly.
-    -- When at or above the surface (y <= 56), oxygen resets.
     if player.y > 56 then
-        oxygen -= 0.05  -- Decrease oxygen more slowly
+        oxygen -= 0.05
         if oxygen < 0 then oxygen = 0 end
-    else
-        oxygen = 100
+    elseif player.y <= 56 and refills > 0 then
+        if oxygen < 100 then
+            oxygen = 100
+            refills -= 1
+        end
     end
 
-    -- Update camera to follow the player while staying inside map boundaries
     cam_x = mid(0, player.x - 64, map_width - 128)
     cam_y = mid(0, player.y - 64, map_height - 128)
+
+    if rnd(1) < 0.2 then
+        spawn_fish()
+    end
+
+    for f in all(fish_list) do
+        f.x += f.vx
+        if f.x < -16 or f.x > map_width then
+            del(fish_list, f)
+        end
+    end
+
+    local boat_colliding = collides(player, boat, 16, 16, boat.width, boat.height)
+
+    -- Deposit fish: when colliding with boat and Z (btnp(4)) is pressed
+    if btnp(4) and boat_colliding then
+        if #player.inventory > 0 then
+            local deposit_value = 0
+            for i=1, #player.inventory do
+                deposit_value += player.inventory[i].type.value
+            end
+            score += deposit_value
+            add(pickup_effects, {x = boat.x + boat.width/2, y = boat.y, value = deposit_value, timer = 60})
+            player.inventory = {}
+        end
+    end
+
+    -- Pickup fish: when NOT colliding with boat and X (btnp(5)) is pressed
+    if btnp(5) and (not boat_colliding) then
+        for i = #fish_list, 1, -1 do
+            local f = fish_list[i]
+            if collides(player, f) and #player.inventory < 10 then
+                add(player.inventory, f)
+                add(pickup_effects, {x = f.x, y = f.y, value = f.type.value, timer = 60})
+                del(fish_list, f)
+            end
+        end
+    end
+
+    for e in all(pickup_effects) do
+        e.timer -= 1
+        e.y -= 0.2
+        if e.timer <= 0 then
+            del(pickup_effects, e)
+        end
+    end
+
+    if score > high_score then
+        high_score = score
+    end
 end
 
+-- ==================================================
+-- _draw() function
+-- ==================================================
 function _draw()
     cls()
     camera(cam_x, cam_y)
     map(0, 0, 0, 0, 128, 128)
 
-    -- Draw the player
     if player.direction == "up" then
         spr(swim_up_frames[player.frame], player.x, player.y, 2, 2)
     elseif player.direction == "right" then
@@ -114,10 +233,48 @@ function _draw()
         spr(swim_down_frames[player.frame], player.x, player.y, 2, 2)
     end
 
-    -- Draw oxygen bar as a UI element (fixed on screen)
-    camera(0,0)  -- Reset camera to draw UI elements
-    -- The oxygen bar will be drawn in red (color 8) and have a max width of 40 pixels.
+    for f in all(fish_list) do
+        spr(f.type.sprite, f.x, f.y, 1, 1, f.flip)
+    end
+
+    for e in all(pickup_effects) do
+        print("+"..e.value, e.x, e.y, 10)
+    end
+
+    
+
+    camera(0,0)
+    print("score: "..score, 5, 5, 7)
+    print("high: "..high_score, 5, 12, 7)
+    
+    local ui_y = 100  -- starting y-coordinate for UI elements
+    
+    -- Inventory display (placed above oxygen)
+    print("inventory: "..#player.inventory.."/10", 5, ui_y, 7)
+    
+    -- Oxygen bar and text (placed below inventory)
+    local oxygen_y = ui_y + 15
     local bar_width = (oxygen / 100) * 40
-    rectfill(5, 5, 5 + bar_width, 10, 8) 
-    print("oxygen", 5, 12, 7)
+    rectfill(5, oxygen_y, 5 + bar_width, oxygen_y + 5, 8)
+    print("oxygen", 5, oxygen_y - 8, 7)
+    
+    -- Draw 3 refill squares next to the "OXYGEN" text.
+    -- We'll assume the maximum number of refills is 3.
+    local max_refills = 3
+    local square_size = 5
+    local spacing = 2
+    -- Starting x-coordinate for the squares (adjust as needed)
+    local start_x = 32
+    local square_y = oxygen_y - 8  -- Align with the "OXYGEN" text
+    
+    for i = 1, max_refills do
+      local sq_x = start_x + (i - 1) * (square_size + spacing)
+      if i <= refills then
+        rectfill(sq_x, square_y, sq_x + square_size, square_y + square_size, 140)
+      else
+        rect(sq_x, square_y, sq_x + square_size, square_y + square_size, 140)
+      end
+    end
+     
+
 end
