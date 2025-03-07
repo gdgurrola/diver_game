@@ -406,8 +406,6 @@ end
             end
         end
 
-
-             -- At the end of the game branch in _update(), before checking end conditions:
         update_sharks()
 
 
@@ -446,19 +444,26 @@ function _draw()
     cls()
     if game_state == "start" then
         camera(0,0)
-        map(0, 0, 0, 0, 8, 8)
-        print("Welcome to Deep Dive!", 10, 30, 7)
-        print("Press Z to begin", 10, 40, 7)
+        map(0, 0, 0, 0, 64, 64)
+        print("welcome to free diving!", 20, 25, 10)
+        print("press z to begin", 30, 40, 7)
+
+        print("rules: ",10, 70, 7)
+        print("- press x to collect fish", 10, 80, 7)
+
+        print("- press z to sprint swim", 10,90, 7)
+        print("- sprinting = lose inventory", 10,  100, 7)
+        print("- drop fish off at boat", 10, 110, 7)
+        print("- avoid sharks + save oxygen", 10, 120, 7 )
     elseif game_state == "pregame" then
         camera(0,0)
         map(0, 0, 0, 0, 128, 128)
         spr(swim_up_frames[player.frame], player.x, player.y, 2, 2)
-        print("Press Z to jump into the water", 10, 100, 7)
+        print("press z to jump into the water", 5, 75, 7)
     elseif game_state == "jump" then
         camera(0,0)
         map(0, 0, 0, 0, 128, 128)
         spr(swim_up_frames[player.frame], player.x, player.y, 2, 2)
-        print("Jumping...", 10, 100, 7)
     elseif game_state == "game" then
         camera(cam_x, cam_y)
         map(0, 0, 0, 0, 128, 128)
@@ -481,7 +486,6 @@ function _draw()
 
         -- In the "game" branch of _draw(), after drawing fish and pickup effects:
         draw_sharks()
-        draw_shark_hitboxes()  -- Draw hitboxes for debugging
 
 
 
@@ -509,9 +513,10 @@ function _draw()
         end
     elseif game_state == "end" then
         camera(0,0)
-        print(end_message, 10, 50, 7)
-        print("Press Z to restart", 10, 60, 7)
-        print("Final Score: "..score, 10, 70, 7)
+        map(0, 7, 0, 0, 128, 128)
+        print(end_message, 12, 50, 7)
+        print("press z to restart", 25, 60, 7)
+        print("final score: "..score, 30, 70, 7)
     end
 end
 
