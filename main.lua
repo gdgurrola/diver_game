@@ -6,12 +6,16 @@ __lua__
 game_state = "start"  -- possible states: "start", "pregame", "jump", "game", "end"
 end_message = ""      -- message shown in the end state
 oxygen = 100
-refills = 3         -- 3 breaths per round
+refills = 4         -- 3 breaths per round
 score = 0
 high_score = 0      -- high_score updates only on a successful round
 pickup_effects = {} -- for showing pickup/deposit effects
 jump_speed = 0 
 max_fish_count = 50
+dash_timer = 0
+sharks = {}
+
+
 
 -- Player setup (drawn 2x; native 8x8 becomes 16x16)
 player = {
@@ -34,9 +38,6 @@ map_width = 1024  -- 128 tiles * 8 pixels
 map_height = 512  -- 64 tiles * 8 pixels (extended map)
 sand_top = map_height - 8
 
--- Boat object – drawn on the map as sprite 75 at tile (2,10)
--- (2,10) converts to pixel coordinates (16,80) if each tile is 8 pixels.
--- (Adjusted here to: x = 16, y = 45, width = 32, height = 20)
 boat = { x = 16, y = 45, width = 32, height = 20 }
 
 -- Camera position variables
@@ -95,6 +96,114 @@ function spawn_fish()
     add(fish_list, fish)
 end
 
+
+function initialize_sharks()
+    -- Clear previous sharks, if any:
+    sharks = {}
+    for i = 1, 4 do
+      local s = {
+        x = rnd(map_width - 16),      
+        y = 100 + rnd(map_height - 116), -- Ensures y is never between 0 and 100
+        direction = (flr(rnd(2)) == 0) and "left" or "right",  -- Random starting direction
+        speed = 0.5,                   -- Start with normal speed
+        anim_timer = 0,                -- Animation timer
+        frame = 102,                   -- Start with body sprite 102
+        mouth_frame = 118,             -- Start with mouth sprite 118
+        flip = false                  -- Default flip value (we'll update this)
+      }
+      add(sharks, s)
+    end
+end
+
+function update_sharks()
+    for s in all(sharks) do
+        -- Toggle between body sprite (102/104) and mouth sprite (118/120)
+        s.anim_timer += 1
+        if s.anim_timer > 10 then
+            if s.frame == 102 then
+                s.frame = 104
+                s.mouth_frame = 120
+            else
+                s.frame = 102
+                s.mouth_frame = 118
+            end
+            s.anim_timer = 0
+        end
+
+        -- Calculate horizontal distance to player.
+        local xdist = abs(s.x - player.x)
+        local ydist = abs(s.y - player.y)
+
+        -- Increase speed when the player is close
+        if xdist < 50 and xdist > 10 and ydist < 50 then
+            s.speed = 2.0  
+            -- Turn toward the player:
+            if s.x < player.x then
+                s.direction = "right"
+            else
+                s.direction = "left"
+            end
+        elseif xdist > 100 then
+            s.speed = 0.5
+        end
+
+        -- Move the shark horizontally only.
+        if s.direction == "left" then
+            s.x -= s.speed
+        else
+            s.x += s.speed
+        end
+
+        -- Ensure the shark stays within the map bounds:
+        if s.x < 0 then
+            s.x = 0
+            s.direction = "right"
+        elseif s.x > map_width - 16 then
+            s.x = map_width - 16
+            s.direction = "left"
+        end
+
+        -- Update the flip property based on direction.
+        s.flip = (s.direction == "right")
+    end
+end
+
+
+function draw_sharks()
+    local scale = 2  -- magnification factor
+    for s in all(sharks) do
+      local cell = s.frame  -- should be 102 or 104
+      local sx = (cell % 16) * 8
+      local sy = flr(cell / 16) * 8
+  
+      local dw = 16 * scale
+      local dx = s.x
+      if s.flip then
+        dx = s.x + dw  -- adjust x so the sprite stays in place when flipped
+        dw = -dw       -- negative width flips the sprite horizontally
+      end
+  
+      sspr(sx, sy, 16, 16, dx, s.y, dw, 16 * scale)
+    end
+  end
+  
+
+-- Function to draw shark hitboxes for debugging
+function draw_shark_hitboxes()
+    for s in all(sharks) do
+        -- Define collision box for shark mouth
+        local mouth_x = s.x + (s.flip and 28 or 2)  -- Moves to the right when flipped
+        local mouth_y = s.y + 16  -- Adjust to align with mouth position
+
+        -- Define mouth hitbox dimensions
+        local mouth_hitbox = {x = mouth_x, y = mouth_y, width = 4, height = 4}
+
+        -- Draw hitbox rectangle
+        rect(mouth_hitbox.x, mouth_hitbox.y, mouth_hitbox.x + mouth_hitbox.width, mouth_hitbox.y + mouth_hitbox.height, 8) -- Red hitbox
+    end
+end
+
+
 -- Collision detection: defaults: player 16x16, fish 8x8, boat uses its width/height.
 function collides(a, b, aw, ah, bw, bh)
     aw = aw or 16
@@ -103,6 +212,9 @@ function collides(a, b, aw, ah, bw, bh)
     bh = bh or 8
     return a.x < b.x + bw and a.x + aw > b.x and a.y < b.y + bh and a.y + ah > b.y
 end
+
+
+
 
 ---------------------------------------------------
 -- _update() function with game state handling
@@ -119,6 +231,7 @@ function _update()
         if btnp(4) then
             game_state = "jump"
             jump_speed = 0  -- initialize jump speed
+            initialize_sharks()
         end
 
     elseif game_state == "jump" then
@@ -140,21 +253,29 @@ function _update()
         local moving_horizontally = false
         local moving_vertically = false
 
+        -- Determine current movement speed; if dash_timer > 0, speed is boosted.
+    local current_speed = player.speed
+    if dash_timer > 0 then
+        current_speed = player.speed * 2  -- Change 2 to another multiplier if desired.
+        dash_timer = dash_timer - 2
+    end
+
+
         if btn(0) and player.x > 0 then
-            player.x -= player.speed
+            player.x -= current_speed --player.speed
             player.direction = "left"
             moving_horizontally = true
         elseif btn(1) and player.x < map_width - 16 then
-            player.x += player.speed
+            player.x += current_speed --player.speed
             player.direction = "right"
             moving_horizontally = true
         end
 
         if btn(2) and player.y > 56 then
-            player.y -= player.speed
+            player.y -= current_speed 
             moving_vertically = true
         elseif btn(3) and player.y < (sand_top - 16) then
-            player.y += player.speed
+            player.y += current_speed 
             moving_vertically = true
         end
 
@@ -186,6 +307,8 @@ function _update()
             end
         end
 
+
+   
         if player.y > 56 then
             oxygen -= 0.05
             if oxygen < 0 then oxygen = 0 end
@@ -210,28 +333,13 @@ function _update()
             end
         end
 
- -- In the "game" state in _update(), within the deposit section:
+
 
 
 local boat_colliding = collides(player, boat, 16, 16, boat.width, boat.height)
 
 
 -- In the "game" branch of _update(), after handling movement and animation:
-
-local boat_colliding = collides(player, boat, 16, 16, boat.width, boat.height)
-
--- Deposit fish: when colliding with boat and Z (btnp(4)) is pressed
-if btnp(4) and boat_colliding then
-    if #player.inventory > 0 then
-        local deposit_value = 0
-        for i=1, #player.inventory do
-            deposit_value += player.inventory[i].type.value
-        end
-        score += deposit_value
-        add(pickup_effects, {x = boat.x + boat.width/2, y = boat.y, value = deposit_value, timer = 60})
-        player.inventory = {}
-    end
-end
 
 -- Pickup fish: when NOT colliding with boat and X (btnp(5)) is pressed
 if btnp(5) and (not boat_colliding) then
@@ -245,6 +353,51 @@ if btnp(5) and (not boat_colliding) then
     end
 end
 
+for s in all(sharks) do
+    -- Define collision box for shark mouth
+    local mouth_x = s.x + (s.flip and 28 or 2)  -- Move right when flipped
+    local mouth_y = s.y + 16  -- Adjust to match the actual mouth position
+
+    -- Define mouth hitbox dimensions
+    local mouth_hitbox = {x = mouth_x, y = mouth_y, width = 4, height = 4}
+
+    -- Check collision from **all four sides**
+    if collides(player, mouth_hitbox, 16, 16, 4, 4) then
+        end_message = "You were eaten by a shark!"
+        game_state = "end"
+    end
+end
+
+
+
+
+-- Check if the player is colliding with the boat.
+local boat_colliding = collides(player, boat, 16, 16, boat.width, boat.height)
+
+-- Dash activation: if player presses Z (btnp(4)) and is NOT colliding with the boat,
+-- and if they have fish in their inventory, activate dash.
+if btnp(4) and (not boat_colliding) then
+    if #player.inventory > 0 then
+        dash_timer = (#player.inventory) * 10  -- e.g., 10 frames boost per fish lost
+        player.inventory = {}  -- Clear inventory as the cost for dashing
+    end
+end
+
+
+-- Automatic deposit: if the player touches the boat, deposit all fish in the inventory.
+if boat_colliding then
+    if #player.inventory > 0 then
+        local deposit_value = 0
+        for i = 1, #player.inventory do
+            deposit_value += player.inventory[i].type.value
+        end
+        score += deposit_value
+        add(pickup_effects, {x = boat.x + boat.width/2, y = boat.y, value = deposit_value, timer = 60})
+        player.inventory = {}  -- Clear the inventory after deposit.
+    end
+end
+
+
         for e in all(pickup_effects) do
             e.timer -= 1
             e.y -= 0.2
@@ -253,12 +406,18 @@ end
             end
         end
 
+
+             -- At the end of the game branch in _update(), before checking end conditions:
+        update_sharks()
+
+
+
         -- End conditions:
         if oxygen == 0 then
             end_message = "You ran out of oxygen!"
             game_state = "end"
         end
-        if refills == 0 and player.y <= 56 then
+        if boat_colliding and player.y <= 56 and refills==0 then
             end_message = "You made it back! Good job!"
             game_state = "end"
             -- Only update high score after round completion if successful.
@@ -319,6 +478,13 @@ function _draw()
             print("+"..e.value, e.x, e.y, 10)
         end
 
+
+        -- In the "game" branch of _draw(), after drawing fish and pickup effects:
+        draw_sharks()
+        draw_shark_hitboxes()  -- Draw hitboxes for debugging
+
+
+
         camera(0,0)
         print("score: "..score, 5, 5, 7)
         print("high: "..high_score, 5, 12, 7)
@@ -348,3 +514,4 @@ function _draw()
         print("Final Score: "..score, 10, 70, 7)
     end
 end
+
