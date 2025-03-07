@@ -213,7 +213,10 @@ function collides(a, b, aw, ah, bw, bh)
     return a.x < b.x + bw and a.x + aw > b.x and a.y < b.y + bh and a.y + ah > b.y
 end
 
+function _init()
+    music(0)
 
+end
 
 
 ---------------------------------------------------
@@ -346,6 +349,7 @@ if btnp(5) and (not boat_colliding) then
     for i = #fish_list, 1, -1 do
         local f = fish_list[i]
         if collides(player, f) and #player.inventory < 10 then
+            sfx(9,2)
             add(player.inventory, f)
             add(pickup_effects, {x = f.x, y = f.y, value = f.type.value, timer = 60})
             del(fish_list, f)
@@ -363,6 +367,7 @@ for s in all(sharks) do
 
     -- Check collision from **all four sides**
     if collides(player, mouth_hitbox, 16, 16, 4, 4) then
+        sfx(10,2)
         end_message = "You were eaten by a shark!"
         game_state = "end"
     end
@@ -399,6 +404,7 @@ end
 
 
         for e in all(pickup_effects) do
+
             e.timer -= 1
             e.y -= 0.2
             if e.timer <= 0 then
@@ -412,11 +418,12 @@ end
 
         -- End conditions:
         if oxygen == 0 then
-            end_message = "You ran out of oxygen!"
+            end_message = "you ran out of oxygen!"
+            sfx(10,2)
             game_state = "end"
         end
         if boat_colliding and player.y <= 56 and refills==0 then
-            end_message = "You made it back! Good job!"
+            end_message = "you made it back! good job!"
             game_state = "end"
             -- Only update high score after round completion if successful.
             if score > high_score then
